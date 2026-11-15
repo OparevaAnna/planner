@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { CATEGORIES } from '../lib/api';
+import { useMemo, useState } from 'react';
+import { CATEGORIES, clean, hhmm } from '../lib/api';
 
 function Sheet({ title, subtitle, onClose, children }) {
   return (
@@ -98,18 +98,105 @@ export function PauseSheet({ task, onClose, onSubmit, busy }) {
   );
 }
 
-export function DoneSheet({ task, onClose, onSubmit, busy }) {
-  const [comment, setComment] = useState('');
-  const [energy, setEnergy] = useState(null);
+const nowHHMM = () =>
+  new Date().toLocaleTimeString('ru-RU', {
+    timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+
+function shiftTime(hhmm, deltaMin) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return hhmm;
+  const total = (((h * 60 + m + deltaMin) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Что показать в полях времени: таймер → ручное время → план. */
+function initialTimes(task) {
+  const end = task.completed_at ? hhmm(task.completed_at) : nowHHMM();
+  if (task.started_at) return { start: hhmm(task.started_at), end };
+  const mins = task.actual_minutes ?? task.planned_minutes;
+  if (mins) return { start: shiftTime(end, -mins), end };
+  return { start: clean(task.planned_time) || end, end };
+}
+
+const minutesBetween = (start, end) => {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return null;
+  return eh * 60 + em - (sh * 60 + sm);
+};
+
+export function DoneSheet({ task, edit = false, onClose, onSubmit, busy }) {
+  const init = useMemo(() => initialTimes(task), [task]);
+  const [comment, setComment] = useState(task.comment ?? '');
+  const [energy, setEnergy] = useState(task.energy ?? null);
+  const [start, setStart] = useState(init.start);
+  const [end, setEnd] = useState(init.end);
+  const [err, setErr] = useState('');
+
+  const changed = start !== init.start || end !== init.end;
+  const minutes = minutesBetween(start, end);
+  const badTime = changed && (!(minutes > 0) || minutes > 16 * 60);
+
+  const submit = () => {
+    if (badTime) {
+      setErr(minutes > 0 ? 'Больше 16 часов — проверь время' : 'Конец должен быть позже начала');
+      return;
+    }
+    onSubmit({
+      comment: comment.trim(),
+      energy,
+      times: changed ? { start, end, minutes } : null,
+    });
+  };
 
   return (
     <Sheet
-      title="Готово"
+      title={edit ? 'Время и заметка' : 'Готово'}
       subtitle={`${task.title}${task.planned_minutes ? ` · план ${task.planned_minutes} мин` : ''}`}
       onClose={onClose}
     >
+      <div className="flex gap-2">
+        <label className="flex-1">
+          <span className="mb-1 block text-[12px] text-[var(--muted)]">Начало</span>
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => { setStart(e.target.value); setErr(''); }}
+            className={area}
+          />
+        </label>
+        <label className="flex-1">
+          <span className="mb-1 block text-[12px] text-[var(--muted)]">Конец</span>
+          <input
+            type="time"
+            value={end}
+            onChange={(e) => { setEnd(e.target.value); setErr(''); }}
+            className={area}
+          />
+        </label>
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between text-[12px] text-[var(--muted)]">
+        <span>
+          {(changed ? minutes : (task.actual_minutes ?? minutes)) > 0
+            ? `${changed ? minutes : (task.actual_minutes ?? minutes)} мин`
+            : '—'}
+          {changed ? ' · твоё время главнее таймера и плана' : task.started_at ? ' · по таймеру' : ' · по плану'}
+        </span>
+        {changed && (
+          <button
+            onClick={() => { setStart(init.start); setEnd(init.end); setErr(''); }}
+            className="text-[var(--accent)]"
+          >
+            вернуть
+          </button>
+        )}
+      </div>
+      {err && <div className="mt-1 text-[12px] text-red-400">{err}</div>}
+
       <textarea
-        className={area}
+        className={`${area} mt-3`}
         rows={2}
         placeholder="Как прошло? Что помешало?"
         value={comment}
@@ -139,10 +226,10 @@ export function DoneSheet({ task, onClose, onSubmit, busy }) {
         </button>
         <button
           disabled={busy}
-          onClick={() => onSubmit({ comment: comment.trim(), energy })}
+          onClick={submit}
           className="h-11 flex-1 rounded-xl bg-[var(--accent)] text-[14px] font-semibold text-black disabled:opacity-50"
         >
-          Записать
+          {edit ? 'Сохранить' : 'Записать'}
         </button>
       </div>
     </Sheet>

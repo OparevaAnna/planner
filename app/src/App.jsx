@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   addFact, catOf, completeTask, ensureAuth, hhmm, initTelegram, isoAt, loadDay,
-  MODES, notify, pauseTask, resumeTask, startTask, todayStr,
+  MODES, notify, patchTask, pauseTask, resumeTask, setTaskTime, startTask, todayStr,
 } from './lib/api';
 import { haptic } from './lib/api';
 import TaskCard from './components/TaskCard';
@@ -63,6 +63,31 @@ export default function App() {
   };
 
   const reload = () => refresh().catch((e) => flash(e.message || 'Не обновилось'));
+
+  /**
+   * «Готово» и правка времени. Ручное время главнее таймера и плана:
+   * сначала закрываем задачу (complete_task), потом, если время меняли,
+   * пишем его в daily_tasks как time_source='fact'.
+   */
+  const submitDone = async ({ comment, energy, times }) => {
+    const task = sheet.task;
+    const span = times ? { start: isoAt(date, times.start), end: isoAt(date, times.end) } : null;
+
+    if (sheet.edit) {
+      if (span) {
+        await setTaskTime(task.id, { ...span, comment, energy });
+      } else if (comment !== (task.comment ?? '') || energy !== (task.energy ?? null)) {
+        await patchTask(task.id, {
+          comment: comment || null,
+          ...(energy ? { energy } : {}),
+        });
+      }
+      return;
+    }
+
+    await completeTask(task.id, { comment, energy });
+    if (span) await setTaskTime(task.id, { ...span, comment, energy });
+  };
 
   const act = async (fn, msg) => {
     setBusy(true);
@@ -165,6 +190,7 @@ export default function App() {
                 onResume={(task) => act(() => resumeTask(task.id))}
                 onPause={(task) => setSheet({ type: 'pause', task })}
                 onDone={(task) => setSheet({ type: 'done', task })}
+                onEdit={(task) => setSheet({ type: 'done', task, edit: true })}
               />
             ))}
           </div>
@@ -237,9 +263,10 @@ export default function App() {
       {sheet?.type === 'done' && (
         <DoneSheet
           task={sheet.task}
+          edit={Boolean(sheet.edit)}
           busy={busy}
           onClose={() => setSheet(null)}
-          onSubmit={(d) => act(() => completeTask(sheet.task.id, d), 'Записано')}
+          onSubmit={(d) => act(() => submitDone(d), d.times ? 'Время записано' : 'Записано')}
         />
       )}
       {sheet?.type === 'fact' && (

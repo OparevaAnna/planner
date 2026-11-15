@@ -107,8 +107,7 @@ const rpc = async (fn, args) => {
   return data;
 };
 
-export const startTask = (id) => rpc('start_task', { p_task_id: id });
-export const resumeTask = (id) => rpc('resume_task', { p_task_id: id });
+export const startTask = (id) => rpc('start_task', { p_task_id: id });export const resumeTask = (id) => rpc('resume_task', { p_task_id: id });
 export const pauseTask = (id, { reason, asFact, category }) =>
   rpc('pause_task', {
     p_task_id: id,
@@ -123,6 +122,31 @@ export const completeTask = (id, { comment, energy }) =>
     p_energy: energy || null,
   });
 export const reopenTask = (id) => rpc('reopen_task', { p_task_id: id });
+
+export async function patchTask(id, patch) {
+  const { data, error } = await supabase
+    .from('daily_tasks')
+    .update({ ...patch, source: 'telegram' })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Ручное время главнее таймера и плана.
+ * Пишется в daily_tasks: started_at/completed_at + actual_minutes, time_source='fact'
+ * (в отчёте это «вручную»). Время таймера остаётся в task_sessions как история.
+ */
+export async function setTaskTime(id, { start, end, comment, energy }) {
+  const minutes = Math.round((new Date(end) - new Date(start)) / 60000);
+  if (!(minutes > 0)) throw new Error('Конец должен быть позже начала');
+  const patch = { started_at: start, completed_at: end, actual_minutes: minutes, time_source: 'fact' };
+  if (comment !== undefined) patch.comment = comment;
+  if (energy) patch.energy = energy;
+  return patchTask(id, patch);
+}
 
 export async function addFact({ date, title, category, start, end, comment }) {
   const { data, error } = await supabase.from('fact_logs').insert({

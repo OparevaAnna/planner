@@ -13,7 +13,7 @@ function fmtElapsed(min) {
   return h > 0 ? `${h}:${String(min % 60).padStart(2, '0')}` : `${min} мин`;
 }
 
-export default function TaskCard({ task, session, now, onStart, onPause, onDone, onResume }) {
+export default function TaskCard({ task, session, now, onStart, onPause, onDone, onResume, onEdit }) {
   const cat = catOf(task.category);
   const isDone = task.status === 'done';
   const isActive = task.status === 'active';
@@ -26,7 +26,10 @@ export default function TaskCard({ task, session, now, onStart, onPause, onDone,
 
   return (
     <div
+      onClick={isDone ? () => onEdit?.(task) : undefined}
       className={`rounded-2xl border p-3.5 transition-colors ${
+        isDone ? 'cursor-pointer active:opacity-80' : ''
+      } ${
         isActive
           ? 'border-[var(--accent)] bg-[var(--card2)]'
           : isDone
@@ -51,11 +54,13 @@ export default function TaskCard({ task, session, now, onStart, onPause, onDone,
             {task.planned_minutes ? <span>{task.planned_minutes} мин план</span> : null}
             {task.actual_minutes != null && (
               <span className={task.time_source === 'tracked' ? 'text-[var(--fg)]' : ''}>
-                {task.actual_minutes} мин факт{task.time_source === 'planned' ? ' (план)' : ''}
+                {task.actual_minutes} мин факт
+                {task.time_source === 'planned' ? ' (план)' : task.time_source === 'fact' ? ' (вручную)' : ''}
               </span>
             )}
             {task.is_anchor && <span className="text-[var(--muted)]">якорь</span>}
             {live && <span className="live font-medium text-[var(--accent)]">{live}</span>}
+            {isDone && <span className="text-[var(--muted)]">✎ время</span>}
           </div>
 
           {task.comment && (

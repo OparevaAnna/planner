@@ -79,7 +79,7 @@ function renderDay(date, { plan, tasks, sessions, facts, stats }) {
   for (const t of tasks) {
     const planStr = t.planned_time ? `${String(t.planned_time).slice(0, 5)}${t.planned_minutes ? ` (${t.planned_minutes}м)` : ''}` : '—';
     const factStr = t.actual_minutes != null
-      ? `${t.actual_minutes}м${t.time_source === 'planned' ? ' (план)' : t.time_source === 'fact' ? ' (факт)' : ''}`
+      ? `${t.actual_minutes}м${t.time_source === 'planned' ? ' (план)' : t.time_source === 'fact' ? ` (вручную${t.started_at && t.completed_at ? `, ${timeOf(t.started_at)}–${timeOf(t.completed_at)}` : ''})` : ''}`
       : (t.started_at ? `${timeOf(t.started_at)}→?` : '—');
     const status = { planned: '·', active: '▶ идёт', paused: '⏸ пауза', done: '✓', skipped: '–' }[t.status] ?? t.status;
     L.push(`| ${planStr} | ${t.title} | ${t.category} | ${factStr} | ${status} | ${t.comment ?? ''} |`);
@@ -96,8 +96,12 @@ function renderDay(date, { plan, tasks, sessions, facts, stats }) {
     for (const s of paused) L.push(`- ${timeOf(s.started_at)}–${s.ended_at ? timeOf(s.ended_at) : '…'} работа, затем: ${s.pause_reason}`);
   }
   if (stats) {
+    const manual = tasks
+      .filter((t) => t.time_source === 'fact' && t.actual_minutes != null)
+      .reduce((s, t) => s + t.actual_minutes, 0);
     L.push('', `**Итог:** ${stats.done_count}/${stats.planned_count} задач · ` +
-      `трекинг ${dur(stats.tracked_minutes)} · план-импутация ${dur(stats.imputed_minutes)} · ` +
+      `трекинг ${dur(stats.tracked_minutes)}${manual ? ` · вручную ${dur(manual)}` : ''} · ` +
+      `план-импутация ${dur(stats.imputed_minutes)} · ` +
       `факты ${dur(stats.fact_minutes)}${stats.done_untracked ? ` · без замера: ${stats.done_untracked}` : ''}`);
   }
   return L.join('\n');
@@ -270,6 +274,32 @@ const commands = {
   },
 
   /**
+   * Ручное время задачи: главнее таймера, плана и импутации.
+   * Пишется как time_source='fact' + actual_minutes (в отчёте — «вручную»).
+   */
+  async 'task:time'(flags) {
+    if (!flags.id) die('нужен --id');
+    if (!flags.start || !flags.end) die('нужны --start HH:MM и --end HH:MM');
+    const date = flags.date || today();
+    const started_at = toIso(date, flags.start);
+    const completed_at = toIso(date, flags.end);
+    const minutes = Math.round((new Date(completed_at) - new Date(started_at)) / 60000);
+    if (!(minutes > 0)) die('конец должен быть позже начала');
+    const patch = {
+      started_at,
+      completed_at,
+      actual_minutes: minutes,
+      time_source: 'fact',
+      source: 'opencode',
+    };
+    if (flags.comment) patch.comment = flags.comment;
+    if (flags.energy) patch.energy = Number(flags.energy);
+    const { data, error } = await sb().from('daily_tasks').update(patch).eq('id', flags.id).select().single();
+    if (error) throw error;
+    out({ task: data, minutes });
+  },
+
+  /**
    * Ищет конфликты у задач, закрытых без старта (time_source='planned'):
    * их плановый интервал пересекается с реально зафиксированным временем.
    * Конфликтующие переносятся в ближайшее свободное окно как факт.
@@ -281,6 +311,11 @@ const commands = {
     const busy = [];
     for (const s of day.sessions) { const i = interval(s.started_at, s.ended_at); if (i) busy.push(i); }
     for (const f of day.facts) { const i = interval(f.started_at, f.ended_at); if (i) busy.push(i); }
+    // задачи с ручным временем тоже занимают слот
+    for (const t of day.tasks) {
+      if (t.time_source !== 'fact' || t.actual_minutes == null) continue;
+      const i = interval(t.started_at, t.completed_at); if (i) busy.push(i);
+    }
 
     const candidates = day.tasks
       .filter((t) => t.status === 'done' && t.time_source === 'planned' && t.planned_time && t.planned_minutes)
@@ -411,6 +446,7 @@ if (!cmd || !commands[cmd]) {
   task:pause    --id <uuid> [--reason ...] [--as-fact] [--category ...]
   task:resume   --id <uuid>
   task:complete --id <uuid> [--comment ...] [--energy 1-5]
+  task:time     --id <uuid> --start HH:MM --end HH:MM [--date ...] [--comment ...]  (ручное время)
   day:reconcile --date ... [--apply]
   day:close     --date ... [--apply]
   summary:upsert --file tmp/summary.json [--apply]`);

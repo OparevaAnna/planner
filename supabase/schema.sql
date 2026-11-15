@@ -65,6 +65,8 @@ create table public.daily_tasks (
   started_at      timestamptz,
   completed_at    timestamptz,
   actual_minutes  int,
+  -- tracked  — из таймера; planned — «готово» без старта; fact — ручное время с телефона
+  -- (started_at/completed_at + actual_minutes) или перенос импутации
   time_source     text not null default 'none'
                   check (time_source in ('none','tracked','planned','fact')),
   comment         text check (char_length(comment) <= 500),
