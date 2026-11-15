@@ -51,10 +51,18 @@ export default function App() {
     return () => clearInterval(id);
   }, [day]);
 
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
+
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2400);
   };
+
+  const reload = () => refresh().catch((e) => flash(e.message || 'Не обновилось'));
 
   const act = async (fn, msg) => {
     setBusy(true);
@@ -101,9 +109,18 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="safe-t sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--bg)]/95 px-4 pb-3 backdrop-blur">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between">
           <div className="text-[13px] uppercase tracking-wide text-[var(--muted)]">{dateLabel()}</div>
-          <div className="text-[13px] text-[var(--muted)]">{doneCount}/{tasks.length}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] text-[var(--muted)]">{doneCount}/{tasks.length}</span>
+            <button
+              onClick={reload}
+              aria-label="Обновить"
+              className="h-7 w-7 rounded-lg border border-[var(--line)] text-[13px] text-[var(--muted)] active:opacity-60"
+            >
+              ↻
+            </button>
+          </div>
         </div>
         <div className="mt-1 flex items-start gap-2">
           <span className="text-[16px] leading-6">{mode.icon}</span>
