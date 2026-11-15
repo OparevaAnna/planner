@@ -356,6 +356,12 @@ const commands = {
     for (const s of openSessions) await sb().from('task_sessions').update({ ended_at: new Date().toISOString() }).eq('id', s.id);
     for (const f of openFacts) await sb().from('fact_logs').update({ ended_at: new Date().toISOString() }).eq('id', f.id);
 
+    // задача не должна остаться «идёт» без таймера — переводим в паузу, решение за десктопом
+    const activeIds = [...new Set(openSessions.map((s) => s.task_id))];
+    if (activeIds.length) {
+      await sb().from('daily_tasks').update({ status: 'paused' }).in('id', activeIds).eq('status', 'active');
+    }
+
     const fresh = await loadDay(date);
     if (fresh.stats) {
       await sb().from('daily_summaries').upsert({

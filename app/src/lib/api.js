@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, missingConfig } from './supabase';
 
 // ---------- Telegram ----------
 export let tg = null;
@@ -44,6 +44,7 @@ export const notify = (type = 'success') => { try { tg?.HapticFeedback?.notifica
 const FUNCTIONS_URL = import.meta.env.VITE_FUNCTIONS_URL;
 
 export async function ensureAuth() {
+  if (!supabase) throw new Error(missingConfig ?? 'Supabase не настроен');
   const { data } = await supabase.auth.getSession();
   const fresh = data.session && (data.session.expires_at ?? 0) - Date.now() / 1000 > 300;
   if (fresh) return data.session;

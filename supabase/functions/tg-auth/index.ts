@@ -8,9 +8,11 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
 const ALLOWED = (Deno.env.get('ALLOWED_ORIGINS') ?? '')
-  .split(',').map((s) => s.trim()).filter(Boolean);
+  .split(',').map((s) => s.trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean);
 
 const enc = new TextEncoder();
+
+const norm = (u: string) => u.replace(/\/+$/, '').toLowerCase();
 
 async function hmac(key: Uint8Array, data: string) {
   const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -28,9 +30,10 @@ function safeEqual(a: string, b: string) {
 }
 
 function cors(origin: string) {
+  const o = norm(origin);
   const ok = ALLOWED.length
-    ? ALLOWED.includes(origin)
-    : origin.endsWith('.github.io') || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+    ? ALLOWED.includes(o) || o.endsWith('.github.io') || o.startsWith('http://localhost') || o.startsWith('http://127.0.0.1')
+    : o.endsWith('.github.io') || o.startsWith('http://localhost') || o.startsWith('http://127.0.0.1');
   return {
     'Access-Control-Allow-Origin': ok ? origin : 'null',
     'Access-Control-Allow-Headers': 'content-type, apikey, authorization, x-client-info',
@@ -103,13 +106,16 @@ Deno.serve(async (req) => {
     return json({ error: linkErr?.message ?? 'link failed' }, 500, headers);
   }
 
-  const verify = await fetch(
-    `${SUPABASE_URL}/auth/v1/verify?token_hash=${link.properties.hashed_token}&type=magiclink`,
-    { headers: { apikey: ANON_KEY } },
-  );
-  const session = await verify.json();
+  const verify = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+    method: 'POST',
+    headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'magiclink', token_hash: link.properties.hashed_token }),
+  });
+  const raw = await verify.text();
+  let session: { access_token?: string; refresh_token?: string; expires_at?: number; token_type?: string; msg?: string } = {};
+  try { session = JSON.parse(raw); } catch { /* not json */ }
   if (!verify.ok || !session.access_token) {
-    return json({ error: session.error_description ?? session.msg ?? 'verify failed' }, 500, headers);
+    return json({ error: session.msg ?? 'verify failed', status: verify.status, body: raw.slice(0, 300) }, 500, headers);
   }
 
   return json({
