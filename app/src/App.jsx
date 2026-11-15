@@ -51,12 +51,6 @@ export default function App() {
     return () => clearInterval(id);
   }, [day]);
 
-  useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [reload]);
-
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2400);
@@ -64,6 +58,11 @@ export default function App() {
 
   const reload = () => refresh().catch((e) => flash(e.message || 'Не обновилось'));
 
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
   /**
    * «Готово» и правка времени. Ручное время главнее таймера и плана:
    * сначала закрываем задачу (complete_task), потом, если время меняли,
